@@ -120,6 +120,7 @@ const AssignmentsPage = () => {
               className="input"
               type="date"
               required
+              min={new Date().toISOString().split('T')[0]}
               value={form.date}
               onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
             />

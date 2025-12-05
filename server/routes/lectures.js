@@ -16,6 +16,62 @@ const normalizeDate = (inputDate) => {
   return date;
 };
 
+const isPastDate = (inputDate) => {
+  const date = normalizeDate(inputDate);
+  if (!date) {
+    return { error: 'Invalid date provided' };
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return { isPast: date < today, normalizedDate: date };
+};
+
+const validateTimings = (date, startTime, endTime) => {
+  // Validate time format (HH:MM)
+  const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/;
+  if (!timeRegex.test(startTime) || !timeRegex.test(endTime)) {
+    return { error: 'Invalid time format. Use HH:MM format (24-hour)' };
+  }
+
+  // Check if start time is before end time
+  const [startHours, startMinutes] = startTime.split(':').map(Number);
+  const [endHours, endMinutes] = endTime.split(':').map(Number);
+  
+  const startTotalMinutes = startHours * 60 + startMinutes;
+  const endTotalMinutes = endHours * 60 + endMinutes;
+
+  if (startTotalMinutes >= endTotalMinutes) {
+    return { error: 'Start time must be before end time' };
+  }
+
+  // If scheduling for today, check if times are in the past
+  const dateValidation = isPastDate(date);
+  if (dateValidation.error) {
+    return { error: dateValidation.error };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lectureDate = dateValidation.normalizedDate;
+  
+  // Check if it's today
+  if (lectureDate.getTime() === today.getTime()) {
+    const now = new Date();
+    const currentHours = now.getHours();
+    const currentMinutes = now.getMinutes();
+    const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+    if (startTotalMinutes < currentTotalMinutes) {
+      return { error: 'Start time cannot be in the past for today\'s lectures' };
+    }
+    if (endTotalMinutes <= currentTotalMinutes) {
+      return { error: 'End time cannot be in the past for today\'s lectures' };
+    }
+  }
+
+  return { valid: true };
+};
+
 const hasDateConflict = async (instructorId, date, excludeLectureId) => {
   const startOfDay = normalizeDate(date);
   if (!startOfDay) {
@@ -139,6 +195,21 @@ router.post('/', auth, adminOnly, async (req, res) => {
       return res.status(404).json({ message: 'Instructor not found' });
     }
 
+    // Check if date is in the past
+    const dateValidation = isPastDate(date);
+    if (dateValidation.error) {
+      return res.status(400).json({ message: dateValidation.error });
+    }
+    if (dateValidation.isPast) {
+      return res.status(400).json({ message: 'Cannot schedule lectures for past dates' });
+    }
+
+    // Validate timings
+    const timingValidation = validateTimings(date, startTime, endTime);
+    if (timingValidation.error) {
+      return res.status(400).json({ message: timingValidation.error });
+    }
+
     const { conflict, normalizedDate, error } = await hasDateConflict(instructor, date);
     if (error) {
       return res.status(400).json({ message: error });
@@ -212,6 +283,17 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
     const dateToCheck = date ? date : lecture.date;
     const instructorToCheck = instructor ? instructor : lecture.instructor;
 
+    // Check if date is in the past (only if date is being updated)
+    if (date) {
+      const dateValidation = isPastDate(date);
+      if (dateValidation.error) {
+        return res.status(400).json({ message: dateValidation.error });
+      }
+      if (dateValidation.isPast) {
+        return res.status(400).json({ message: 'Cannot schedule lectures for past dates' });
+      }
+    }
+
     const { conflict, normalizedDate, error } = await hasDateConflict(instructorToCheck, dateToCheck, lecture._id);
     if (error) {
       return res.status(400).json({ message: error });
@@ -222,6 +304,16 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
         message: `Instructor already has a lecture scheduled on ${normalizedDate.toDateString()}`,
         conflict
       });
+    }
+
+    // Validate timings if times or date are being updated
+    const startTimeToCheck = startTime || lecture.startTime;
+    const endTimeToCheck = endTime || lecture.endTime;
+    if (startTime || endTime || date) {
+      const timingValidation = validateTimings(dateToCheck, startTimeToCheck, endTimeToCheck);
+      if (timingValidation.error) {
+        return res.status(400).json({ message: timingValidation.error });
+      }
     }
 
     if (date) {
@@ -290,6 +382,15 @@ router.post('/:id/assign', auth, adminOnly, async (req, res) => {
     const instructor = await User.findOne({ _id: instructorId, role: 'instructor' });
     if (!instructor) {
       return res.status(404).json({ message: 'Instructor not found' });
+    }
+
+    // Check if date is in the past
+    const dateValidation = isPastDate(date);
+    if (dateValidation.error) {
+      return res.status(400).json({ message: dateValidation.error });
+    }
+    if (dateValidation.isPast) {
+      return res.status(400).json({ message: 'Cannot schedule lectures for past dates' });
     }
 
     const { conflict, normalizedDate, error } = await hasDateConflict(instructorId, date, lecture._id);

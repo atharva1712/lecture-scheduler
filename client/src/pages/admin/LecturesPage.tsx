@@ -32,6 +32,54 @@ const LecturesPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Get current time in HH:MM format
+  const getCurrentTime = () => {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+
+  // Check if selected date is today
+  const isToday = () => {
+    if (!form.date) return false;
+    const today = new Date().toISOString().split('T')[0];
+    return form.date === today;
+  };
+
+  // Validate timings before submit
+  const validateTimings = () => {
+    if (!form.startTime || !form.endTime) return true;
+    
+    const [startHours, startMinutes] = form.startTime.split(':').map(Number);
+    const [endHours, endMinutes] = form.endTime.split(':').map(Number);
+    const startTotal = startHours * 60 + startMinutes;
+    const endTotal = endHours * 60 + endMinutes;
+
+    if (startTotal >= endTotal) {
+      setError('Start time must be before end time');
+      return false;
+    }
+
+    // If scheduling for today, check if times are in the past
+    if (isToday() && form.date) {
+      const currentTime = getCurrentTime();
+      const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
+      const currentTotal = currentHours * 60 + currentMinutes;
+
+      if (startTotal < currentTotal) {
+        setError('Start time cannot be in the past for today\'s lectures');
+        return false;
+      }
+      if (endTotal <= currentTotal) {
+        setError('End time cannot be in the past for today\'s lectures');
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
@@ -67,6 +115,12 @@ const LecturesPage = () => {
     setSaving(true);
     setError(null);
     setSuccessMessage(null);
+
+    // Validate timings
+    if (!validateTimings()) {
+      setSaving(false);
+      return;
+    }
 
     try {
       const payload = {
@@ -179,8 +233,12 @@ const LecturesPage = () => {
                 className="input"
                 type="date"
                 required
+                min={new Date().toISOString().split('T')[0]}
                 value={form.date}
-                onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, date: e.target.value }));
+                  setError(null);
+                }}
               />
             </label>
             <label className="grid" style={{ gap: 4 }}>
@@ -201,8 +259,12 @@ const LecturesPage = () => {
                 className="input"
                 type="time"
                 required
+                min={isToday() ? getCurrentTime() : undefined}
                 value={form.startTime}
-                onChange={(e) => setForm((prev) => ({ ...prev, startTime: e.target.value }))}
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, startTime: e.target.value }));
+                  setError(null);
+                }}
               />
             </label>
 
@@ -212,8 +274,12 @@ const LecturesPage = () => {
                 className="input"
                 type="time"
                 required
+                min={isToday() && form.startTime ? form.startTime : (isToday() ? getCurrentTime() : undefined)}
                 value={form.endTime}
-                onChange={(e) => setForm((prev) => ({ ...prev, endTime: e.target.value }))}
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, endTime: e.target.value }));
+                  setError(null);
+                }}
               />
             </label>
           </div>
